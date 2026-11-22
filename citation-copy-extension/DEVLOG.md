@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-11-22 — v1.1.3：粘贴内容跟随目标段落格式
+
+### 反馈的问题
+
+粘贴到 Word 后，文本没有跟随粘贴位置所在段落的字体、字号等格式。
+
+### 修改
+
+- 富文本剪贴板结构从多个 `<div>` 块级元素改为单个内联 `<span>`：
+  - 避免 Word 把粘贴内容当成新段落并套用默认样式；
+  - 用 `<br><br>` 分隔原文和引用，仍保持在同一段落的格式上下文中。
+- 在 `<span>` 和标题 `<a>` 上增加：
+  ```css
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-style: inherit;
+  line-height: inherit;
+  ```
+  不写死网页字体、字号，让支持 CSS 的编辑器继承目标段落样式。
+- 纯文本输出不变。
+- `manifest.json` 版本升至 `1.1.3`。
+
+### 验证
+
+- 模拟 copy 事件确认剪贴板 HTML 为：
+  ```html
+  <meta charset="utf-8"><span style="font-family:inherit;...">原文<br><br><a href="...">标题</a>[J]...</span>
+  ```
+- HTML 中没有 `<div>` / `<p>` 块级标签。
+- 仍然只有一个超链接，锚文本为标题。
+- `node --check content.js` 通过。
+
+### 注意
+
+- Word 最终如何映射样式还受粘贴选项影响。想让粘贴内容完全跟随目标段落，请在粘贴时选择“合并格式”（Merge Formatting），而不是“保留源格式”或“只保留文本”。
+
 ## 2026-11-22 — v1.1.2：超链接只放在标题上
 
 ### 反馈的问题

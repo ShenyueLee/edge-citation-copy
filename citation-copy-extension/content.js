@@ -36,6 +36,10 @@
   const TITLE_BADGE_RE =
     /\s*(?:[\(\（【]?\s*(?:附视频|附音频|附数据|网络首发|优先出版|增强出版)\s*[\)\）】]?)\s*$/i;
 
+  // 让粘贴内容继承目标段落的字体、字号、字重、行高，而不是固定成网页样式。
+  const INHERIT_FONT_STYLE =
+    'font-family:inherit;font-size:inherit;font-weight:inherit;font-style:inherit;line-height:inherit;';
+
   const TRACKING_PARAMS = new Set([
     'uniplatform',
     'language',
@@ -1399,9 +1403,12 @@
     const title = cleanCitationTitle(meta.title || UNKNOWN_TITLE);
     const safeTitle = escapeHtml(title);
 
-    // 只保留一个最简单的 <a href>，兼容 Word / WPS 的超链接粘贴。
+    // 只保留一个最简单的 <a href>，兼容 Word / WPS 的超链接粘贴；
+    // 字体属性使用 inherit，让标题跟随目标段落的字体和字号。
     const titleHtml = meta.url
-      ? `<a href="${escapeHtml(meta.url)}">${safeTitle}</a>`
+      ? `<a href="${escapeHtml(
+          meta.url
+        )}" style="${INHERIT_FONT_STYLE}">${safeTitle}</a>`
       : safeTitle;
 
     const segments = [];
@@ -1586,7 +1593,10 @@
 
     const plainText = `${cleanedOriginal}\n\n${citationText}`;
     const originalHtml = escapeHtml(cleanedOriginal).replace(/\n/g, '<br>');
-    const htmlText = `<meta charset="utf-8"><div>${originalHtml}</div><div><br></div><div>${citationHtml}</div>`;
+
+    // 用内联 <span> 和 <br>，避免 <div> 在 Word 中另起段落并套用默认样式。
+    // inherit 样式让粘贴内容跟随光标所在段落的字体、字号和行高。
+    const htmlText = `<meta charset="utf-8"><span style="${INHERIT_FONT_STYLE}">${originalHtml}<br><br>${citationHtml}</span>`;
 
     // 接管复制行为，防止浏览器用未修改的选区覆盖剪贴板内容。
     event.preventDefault();
