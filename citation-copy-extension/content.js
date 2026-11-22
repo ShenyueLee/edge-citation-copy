@@ -1382,7 +1382,9 @@
   /**
    * 构造富文本引用。
    *
-   * 标题指向干净链接，粘贴到 Word / WPS 后会成为可点击的锚文本。
+   * 只把标题做成超链接，不再复制可见的 DOI/URL 链接文本。粘贴到
+   * Word / WPS 后，标题就是唯一可点击的锚文本；纯文本版本仍保留
+   * DOI 或干净 URL，便于不支持富文本的场景使用。
    *
    * @param {ReturnType<typeof getPageMetadata>} meta
    * @returns {string}
@@ -1397,10 +1399,9 @@
     const title = cleanCitationTitle(meta.title || UNKNOWN_TITLE);
     const safeTitle = escapeHtml(title);
 
+    // 只保留一个最简单的 <a href>，兼容 Word / WPS 的超链接粘贴。
     const titleHtml = meta.url
-      ? `<a href="${escapeHtml(
-          meta.url
-        )}" target="_blank" rel="noopener noreferrer">${safeTitle}</a>`
+      ? `<a href="${escapeHtml(meta.url)}">${safeTitle}</a>`
       : safeTitle;
 
     const segments = [];
@@ -1417,39 +1418,15 @@
         segments.push(`${escapeHtml(source)}.`);
       }
 
+      // DOI 作为普通文本保留；链接只放在标题上。
       if (meta.doi) {
-        const doiUrl = `https://doi.org/${meta.doi}`;
-        segments.push(
-          `DOI: <a href="${escapeHtml(
-            doiUrl
-          )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-            meta.doi
-          )}</a>.`
-        );
-      } else if (meta.url) {
-        segments.push(
-          `<a href="${escapeHtml(
-            meta.url
-          )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-            meta.url
-          )}</a>.`
-        );
+        segments.push(`DOI: ${escapeHtml(meta.doi)}.`);
       }
     } else {
       segments.push(`${titleHtml}[EB/OL].`);
 
       const issued = meta.date ? `(${escapeHtml(meta.date)})` : '';
       segments.push(`${issued}[${todayString()}].`);
-
-      if (meta.url) {
-        segments.push(
-          `<a href="${escapeHtml(
-            meta.url
-          )}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-            meta.url
-          )}</a>.`
-        );
-      }
     }
 
     return segments.join(' ');
