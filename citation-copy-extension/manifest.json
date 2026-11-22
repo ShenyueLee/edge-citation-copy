@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "学术引用复制助手",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "复制网页文本时，自动清理空白并按 GB/T 7714-2015 追加标题、作者、期刊与干净链接。",
   "permissions": [
     "clipboardWrite"

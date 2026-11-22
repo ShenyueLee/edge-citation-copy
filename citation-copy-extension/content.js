@@ -22,6 +22,20 @@
   const CJK_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
   // 常见的跟踪参数。知网的 uniplatform、language 也属于这一类。
+  // 机构、地址、角色等非作者信息，避免把“1.南京师范大学…”当成作者。
+  const AFFILIATION_RE =
+    /(?:大学|学院|学校|中学|小学|幼儿园|党校|研究院|研究所|研究中心|实验室|科学院|工程院|学会|协会|委员会|出版社|编辑部|杂志社|医院|公司|集团|银行|政府|教育厅|教育局|管理局|办公室|教研室|课题组|附属|校区|分校|中心|基地|系)/;
+  const AFFILIATION_EN_RE =
+    /\b(?:University|College|Institute|Academy|School|Department|Faculty|Laborator(?:y|ies)|Hospital|Ministry|Government|Company|Corp(?:oration)?|Inc|Ltd|Lab)\b/i;
+  const AFFILIATION_PREFIX_RE = /^[\(\（]?\d+[\)\）]?[.、,，:：\s]/;
+  const CONTACT_RE = /(?:@|https?:\/\/|邮编|邮箱|电子邮箱|地址\s*[:：])/i;
+  const ROLE_RE =
+    /(?:教授|副教授|讲师|助教|博士|硕士|研究员|副研究员|院士|工程师|高级工程师|主任|副主任|院长|副院长|所长|副所长|处长|副处长|书记|副书记|编辑|编审|记者)/;
+
+  // 知网标题末尾的“附视频”“网络首发”等徽标。
+  const TITLE_BADGE_RE =
+    /\s*(?:[\(\（【]?\s*(?:附视频|附音频|附数据|网络首发|优先出版|增强出版)\s*[\)\）】]?)\s*$/i;
+
   const TRACKING_PARAMS = new Set([
     'uniplatform',
     'language',
@@ -356,14 +370,41 @@
       }
     }
 
+    // 作者列表中混入“1.南京师范大学”这类单位时，严格匹配会失败，
+    // 这里做一次更宽松的逗号拆分，随后由 normalizeAuthorName 过滤单位。
+    if (parts.length === 1 && CJK_RE.test(cleaned) && /[,，]/.test(cleaned)) {
+      const commaParts = cleaned.split(/\s*[,，]\s*/).filter(Boolean);
+      const hasAffiliation = commaParts.some(
+        (part) =>
+          AFFILIATION_RE.test(part) ||
+          AFFILIATION_EN_RE.test(part) ||
+          AFFILIATION_PREFIX_RE.test(part)
+      );
+
+      if (commaParts.length > 1 && hasAffiliation) {
+        parts = commaParts;
+      }
+    }
+
     if (parts.length === 1) {
       // “张三 李四”“张三1 李四2” 这类用空格分隔的中文作者。
       const tokens = cleaned.split(/\s+/);
-      const allChineseNames = tokens.every((token) =>
-        /^[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff·]{2,4}[\d*†‡]*$/.test(token)
+      const allChineseNames = tokens.every(
+        (token) =>
+          token === '等' ||
+          /^[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff·]{2,4}[\d*†‡]*$/.test(token)
+      );
+      const hasAffiliation = tokens.some(
+        (token) =>
+          AFFILIATION_RE.test(token) ||
+          AFFILIATION_EN_RE.test(token) ||
+          AFFILIATION_PREFIX_RE.test(token)
       );
 
-      if (tokens.length > 1 && allChineseNames) {
+      if (
+        tokens.length > 1 &&
+        (allChineseNames || (CJK_RE.test(cleaned) && hasAffiliation))
+      ) {
         parts = tokens;
       }
     }
@@ -383,6 +424,9 @@
       .replace(/^(?:作者|authors?|by)\s*[:：]?\s*/i, '')
       .trim();
 
+    // 去掉 “张三 1.南京师范大学” 这类与单位编号粘连的内容。
+    result = result.replace(/\s*\d+[.、].*$/, '').trim();
+
     if (!result) {
       return '';
     }
@@ -390,9 +434,19 @@
     // 去掉 “张三(1)” 这类上标编号。
     result = result.replace(/[\(\（]\d+[\)\）]$/g, '').trim();
 
+    // 去掉 “张三(通讯作者)” 这类角色标注。
+    result = result
+      .replace(
+        /[\(\（](?:通讯作者|通信作者|第一作者|共同作者|作者)[\)\）]$/g,
+        ''
+      )
+      .trim();
+
     if (CJK_RE.test(result)) {
       result = stripCjkSpaces(result)
         .replace(/\s*·\s*/g, '·')
+        .replace(/\s+([.。])/g, '$1')
+        .replace(/[.。]+$/g, '')
         .replace(/[\d*†‡,，;；]+$/g, '')
         .trim();
     } else {
@@ -400,6 +454,20 @@
     }
 
     if (!result || result.length > 80) {
+      return '';
+    }
+
+    if (
+      AFFILIATION_RE.test(result) ||
+      AFFILIATION_EN_RE.test(result) ||
+      AFFILIATION_PREFIX_RE.test(result) ||
+      CONTACT_RE.test(result) ||
+      ROLE_RE.test(result)
+    ) {
+      return '';
+    }
+
+    if (CJK_RE.test(result) && /\d/.test(result)) {
       return '';
     }
 
@@ -648,6 +716,7 @@
    */
   function cleanPageTitle(value) {
     return stripCjkSpaces(cleanInlineText(value))
+      .replace(TITLE_BADGE_RE, '')
       .replace(
         /\s*[-_|—–]\s*(?:中国知网|CNKI|知网|Google Scholar|百度学术)\s*$/i,
         ''
@@ -669,7 +738,7 @@
     ]);
 
     if (metadataTitle) {
-      return cleanInlineText(metadataTitle);
+      return cleanPageTitle(metadataTitle);
     }
 
     if (isCnkiArticle) {
@@ -726,8 +795,10 @@
     }
 
     text = stripCjkSpaces(text)
-      .replace(/^[《“"']+|[》”"']+$/g, '')
-      .replace(/[,，;；:：\s]+$/, '')
+      .replace(/^[《【“"']+|[》】”"']+$/g, '')
+      .replace(/\s+([.。,，;；:：])/g, '$1')
+      .replace(/[.。,，;；:：、]+$/g, '')
+      .replace(/^[《【“"']+|[》】”"']+$/g, '')
       .trim();
 
     if (!text || /^(?:n\/a|none|null|未知|中国知网|CNKI|知网)$/i.test(text)) {
@@ -1220,7 +1291,14 @@
    * @returns {string}
    */
   function formatSource(meta) {
-    if (!meta.journal) {
+    const journal = cleanInlineText(meta.journal)
+      .replace(/^[《【“"']+|[》】”"']+$/g, '')
+      .replace(/\s+([.。,，;；:：])/g, '$1')
+      .replace(/[.。,，;；:：、]+$/g, '')
+      .replace(/^[《【“"']+|[》】”"']+$/g, '')
+      .trim();
+
+    if (!journal) {
       return '';
     }
 
@@ -1239,7 +1317,21 @@
       tail += `: ${meta.pages}`;
     }
 
-    return tail ? `${meta.journal}, ${tail}` : meta.journal;
+    return tail ? `${journal}, ${tail}` : journal;
+  }
+
+  /**
+   * 清理引用中的题名：去掉末尾徽标、多余空格和句末标点。
+   *
+   * @param {unknown} value
+   * @returns {string}
+   */
+  function cleanCitationTitle(value) {
+    return cleanInlineText(value)
+      .replace(TITLE_BADGE_RE, '')
+      .replace(/\s+([.。;；])/g, '$1')
+      .replace(/[.。;；]+$/, '')
+      .trim();
   }
 
   /**
@@ -1253,7 +1345,7 @@
     const authorPart = authorText
       ? `${authorText}${/[.。]$/.test(authorText) ? '' : '.'}`
       : '';
-    const title = (meta.title || UNKNOWN_TITLE).replace(/[.。;；]+$/, '');
+    const title = cleanCitationTitle(meta.title || UNKNOWN_TITLE);
     const segments = [];
 
     if (authorPart) {
@@ -1302,7 +1394,7 @@
           /[.。]$/.test(authorText) ? '' : '.'
         }`
       : '';
-    const title = (meta.title || UNKNOWN_TITLE).replace(/[.。;；]+$/, '');
+    const title = cleanCitationTitle(meta.title || UNKNOWN_TITLE);
     const safeTitle = escapeHtml(title);
 
     const titleHtml = meta.url
